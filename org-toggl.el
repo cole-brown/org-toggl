@@ -60,32 +60,32 @@ workspace id."
 (defun toggl-prepare-auth-header ()
   "Return a cons to be put into headers for authentication."
   (cons "Authorization"
-	(format "Basic %s" (base64-encode-string (concat toggl-auth-token ":api_token")))))
+        (format "Basic %s" (base64-encode-string (concat toggl-auth-token ":api_token")))))
 
 (defun toggl-request-get (request &optional sync success-fun error-fun timeout)
   "Send a GET REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-	   :parser #'json-read
-	   :headers (list (toggl-prepare-auth-header))
-	   :success success-fun
-	   :error error-fun
-	   :sync sync
-	   :timeout (or timeout toggl-default-timeout)))
+           :parser #'json-read
+           :headers (list (toggl-prepare-auth-header))
+           :success success-fun
+           :error error-fun
+           :sync sync
+           :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-post (request data &optional sync success-fun error-fun timeout)
   "Send a POST REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-	   :type "POST"
-	   :data data
-	   :parser #'json-read
-	   :headers (list (toggl-prepare-auth-header)
-			  '("Content-Type" . "application/json"))
-	   :success success-fun
-	   :error error-fun
-	   :sync sync
-	   :timeout (or timeout toggl-default-timeout)))
+           :type "POST"
+           :data data
+           :parser #'json-read
+           :headers (list (toggl-prepare-auth-header)
+                          '("Content-Type" . "application/json"))
+           :success success-fun
+           :error error-fun
+           :sync sync
+           :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-put (request data &optional sync success-fun error-fun timeout)
   "Send a PUT REQUEST to toggl.com, with TIMEOUT.
@@ -95,7 +95,7 @@ Add the auth token)."
     :data data
     :parser #'json-read
     :headers (list (toggl-prepare-auth-header)
-		   '("Content-Type" . "application/json"))
+                   '("Content-Type" . "application/json"))
     :success success-fun
     :error error-fun
     :sync sync
@@ -105,27 +105,27 @@ Add the auth token)."
   "Send a PATCH REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-	   :type "PATCH"
-	   :data data
-	   :parser #'json-read
-	   :headers (list (toggl-prepare-auth-header)
-			  '("Content-Type" . "application/json"))
-	   :success success-fun
-	   :error error-fun
-	   :sync sync
-	   :timeout (or timeout toggl-default-timeout)))
+           :type "PATCH"
+           :data data
+           :parser #'json-read
+           :headers (list (toggl-prepare-auth-header)
+                          '("Content-Type" . "application/json"))
+           :success success-fun
+           :error error-fun
+           :sync sync
+           :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-delete (request &optional sync success-fun error-fun timeout)
   "Send a DELETE REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-	   :type "DELETE"
-	   ;; :parser #'buffer-string
-	   :headers (list (toggl-prepare-auth-header))
-	   :success success-fun
-	   :error error-fun
-	   :sync sync
-	   :timeout (or timeout toggl-default-timeout)))
+           :type "DELETE"
+           ;; :parser #'buffer-string
+           :headers (list (toggl-prepare-auth-header))
+           :success success-fun
+           :error error-fun
+           :sync sync
+           :timeout (or timeout toggl-default-timeout)))
 
 (defvar toggl-projects nil
   "A list of available projects.
@@ -144,10 +144,10 @@ its id.")
    (cl-function
     (lambda (&key data &allow-other-keys)
       (setq toggl-projects
-	    (mapcar (lambda (project)
-		      (cons (substring-no-properties (alist-get 'name project))
-			    (alist-get 'id project)))
-		    (alist-get 'projects data)))
+            (mapcar (lambda (project)
+                      (cons (substring-no-properties (alist-get 'name project))
+                            (alist-get 'id project)))
+                    (alist-get 'projects data)))
       (message "Toggl projects successfully downloaded.")))
    (cl-function
     (lambda (&key error-thrown &allow-other-keys)
@@ -169,11 +169,11 @@ It is assumed that no two projects have the same name."
   (toggl-request-post
    (format "workspaces/%s/time_entries" toggl-workspace-id)
    (json-encode `(("description" . ,description)
-		  ("duration" . -1)
-		  ("project_id" . ,pid)
-		  ("created_with" . "mbork's Emacs toggl client")
-		  ("start" . ,(format-time-string "%FT%TZ" nil t))
-		  ("workspace_id" . ,toggl-workspace-id)))
+                  ("duration" . -1)
+                  ("project_id" . ,pid)
+                  ("created_with" . "mbork's Emacs toggl client")
+                  ("start" . ,(format-time-string "%FT%TZ" nil t))
+                  ("workspace_id" . ,toggl-workspace-id)))
    nil
    (cl-function
     (lambda (&key data &allow-other-keys)
@@ -190,17 +190,17 @@ It is assumed that no two projects have the same name."
     (let ((time-entry-id (alist-get 'id toggl-current-time-entry)))
       (toggl-request-patch
        (format "workspaces/%s/time_entries/%s/stop"
-	       toggl-workspace-id
-	       time-entry-id)
+               toggl-workspace-id
+               time-entry-id)
        (json-encode `(("time_entry_id" . ,time-entry-id)
-		      ("workspace_id" . ,toggl-workspace-id)))
+                      ("workspace_id" . ,toggl-workspace-id)))
        nil
        (cl-function
-	(lambda (&key data &allow-other-keys)
-	  (when show-message (message "Toggl time entry stopped."))))
+        (lambda (&key data &allow-other-keys)
+          (when show-message (message "Toggl time entry stopped."))))
        (cl-function
-	(lambda (&key error-thrown &allow-other-keys)
-	  (when show-message (message "Stopping time entry failed because %s" error-thrown))))))
+        (lambda (&key error-thrown &allow-other-keys)
+          (when show-message (message "Stopping time entry failed because %s" error-thrown))))))
     (setq toggl-current-time-entry nil)))
 
 (defun toggl-delete-time-entry (&optional tid show-message)
@@ -214,12 +214,12 @@ By default, delete the current one."
      nil
      (cl-function
       (lambda (&key data &allow-other-keys)
-	(when (= tid (alist-get 'id toggl-current-time-entry))
-	  (setq toggl-current-time-entry nil))
-	(when show-message (message "Toggl time entry deleted."))))
+        (when (= tid (alist-get 'id toggl-current-time-entry))
+          (setq toggl-current-time-entry nil))
+        (when show-message (message "Toggl time entry deleted."))))
      (cl-function
       (lambda (&key error-thrown &allow-other-keys)
-	(when show-message (message "Deleting time entry failed because %s" error-thrown)))))))
+        (when show-message (message "Deleting time entry failed because %s" error-thrown)))))))
 
 (defun toggl-get-pid (project)
   "Get PID given PROJECT's name."
@@ -234,8 +234,8 @@ By default, delete the current one."
   "Start a Toggl time entry based on current heading."
   (interactive)
   (let* ((heading (substring-no-properties (org-get-heading t t t t)))
-	 (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
-	 (pid (toggl-get-pid project)))
+         (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
+         (pid (toggl-get-pid project)))
     (when pid (toggl-start-time-entry heading pid t))))
 
 (defun org-toggl-clock-out ()
@@ -256,50 +256,50 @@ By default, delete the current one."
   (interactive "p")
   (let ((element (org-element-at-point)))
     (if (eq (org-element-type element) 'clock)
-	(let* ((heading (substring-no-properties (org-get-heading t t t t)))
-	       (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
-	       (pid (or (toggl-get-pid project) toggl-default-project))
-	       (timestamp (org-element-property :value element))
-	       (year-start (org-element-property :year-start timestamp))
-	       (month-start (org-element-property :month-start timestamp))
-	       (day-start (org-element-property :day-start timestamp))
-	       (hour-start (org-element-property :hour-start timestamp))
-	       (minute-start (org-element-property :minute-start timestamp))
-	       (year-end (org-element-property :year-end timestamp))
-	       (month-end (org-element-property :month-end timestamp))
-	       (day-end (org-element-property :day-end timestamp))
-	       (hour-end (org-element-property :hour-end timestamp))
-	       (minute-end (org-element-property :minute-end timestamp))
-	       (start-time (time-to-seconds (encode-time
-					     0
-					     minute-start
-					     hour-start
-					     day-start
-					     month-start
-					     year-start)))
-	       (stop-time (time-to-seconds (encode-time
-					    0
-					    minute-end
-					    hour-end
-					    day-end
-					    month-end
-					    year-end))))
-	  (toggl-request-post
+        (let* ((heading (substring-no-properties (org-get-heading t t t t)))
+               (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
+               (pid (or (toggl-get-pid project) toggl-default-project))
+               (timestamp (org-element-property :value element))
+               (year-start (org-element-property :year-start timestamp))
+               (month-start (org-element-property :month-start timestamp))
+               (day-start (org-element-property :day-start timestamp))
+               (hour-start (org-element-property :hour-start timestamp))
+               (minute-start (org-element-property :minute-start timestamp))
+               (year-end (org-element-property :year-end timestamp))
+               (month-end (org-element-property :month-end timestamp))
+               (day-end (org-element-property :day-end timestamp))
+               (hour-end (org-element-property :hour-end timestamp))
+               (minute-end (org-element-property :minute-end timestamp))
+               (start-time (time-to-seconds (encode-time
+                                             0
+                                             minute-start
+                                             hour-start
+                                             day-start
+                                             month-start
+                                             year-start)))
+               (stop-time (time-to-seconds (encode-time
+                                            0
+                                            minute-end
+                                            hour-end
+                                            day-end
+                                            month-end
+                                            year-end))))
+          (toggl-request-post
      (format "workspaces/%s/time_entries" toggl-workspace-id)
      (json-encode `(("description" . ,heading)
-		    ("project_id" . ,pid)
-		    ("created_with" . "mbork's Emacs toggl client")
-		    ("start" . ,(format-time-string "%FT%TZ" start-time t))
-		    ("stop" . ,(format-time-string "%FT%TZ" stop-time t))
-		    ("workspace_id" . ,toggl-workspace-id)))
+                    ("project_id" . ,pid)
+                    ("created_with" . "mbork's Emacs toggl client")
+                    ("start" . ,(format-time-string "%FT%TZ" start-time t))
+                    ("stop" . ,(format-time-string "%FT%TZ" stop-time t))
+                    ("workspace_id" . ,toggl-workspace-id)))
      nil
      (cl-function
       (lambda (&key data &allow-other-keys)
-	(setq toggl-current-time-entry data)
-	(when show-message (message "Toggl time entry submitted."))))
+        (setq toggl-current-time-entry data)
+        (when show-message (message "Toggl time entry submitted."))))
      (cl-function
       (lambda (&key error-thrown &allow-other-keys)
-	(when show-message (message "Starting time entry failed because %s" error-thrown))))))
+        (when show-message (message "Starting time entry failed because %s" error-thrown))))))
       (error "No clock at point"))))
 
 (define-minor-mode org-toggl-integration-mode
@@ -311,9 +311,9 @@ automatically."
   :lighter " T-O"
   (if org-toggl-integration-mode
       (progn
-	(add-hook 'org-clock-in-hook #'org-toggl-clock-in)
-	(add-hook 'org-clock-out-hook #'org-toggl-clock-out)
-	(add-hook 'org-clock-cancel-hook #'org-toggl-clock-cancel))
+        (add-hook 'org-clock-in-hook #'org-toggl-clock-in)
+        (add-hook 'org-clock-out-hook #'org-toggl-clock-out)
+        (add-hook 'org-clock-cancel-hook #'org-toggl-clock-cancel))
     (remove-hook 'org-clock-in-hook #'org-toggl-clock-in)
     (remove-hook 'org-clock-out-hook #'org-toggl-clock-out)
     (remove-hook 'org-clock-cancel-hook #'org-toggl-clock-cancel)))
