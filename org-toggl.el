@@ -66,26 +66,26 @@ workspace id."
   "Send a GET REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-           :parser #'json-read
-           :headers (list (toggl-prepare-auth-header))
-           :success success-fun
-           :error error-fun
-           :sync sync
-           :timeout (or timeout toggl-default-timeout)))
+    :parser #'json-read
+    :headers (list (toggl-prepare-auth-header))
+    :success success-fun
+    :error error-fun
+    :sync sync
+    :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-post (request data &optional sync success-fun error-fun timeout)
   "Send a POST REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-           :type "POST"
-           :data data
-           :parser #'json-read
-           :headers (list (toggl-prepare-auth-header)
-                          '("Content-Type" . "application/json"))
-           :success success-fun
-           :error error-fun
-           :sync sync
-           :timeout (or timeout toggl-default-timeout)))
+    :type "POST"
+    :data data
+    :parser #'json-read
+    :headers (list (toggl-prepare-auth-header)
+                   '("Content-Type" . "application/json"))
+    :success success-fun
+    :error error-fun
+    :sync sync
+    :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-put (request data &optional sync success-fun error-fun timeout)
   "Send a PUT REQUEST to toggl.com, with TIMEOUT.
@@ -105,27 +105,27 @@ Add the auth token)."
   "Send a PATCH REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-           :type "PATCH"
-           :data data
-           :parser #'json-read
-           :headers (list (toggl-prepare-auth-header)
-                          '("Content-Type" . "application/json"))
-           :success success-fun
-           :error error-fun
-           :sync sync
-           :timeout (or timeout toggl-default-timeout)))
+    :type "PATCH"
+    :data data
+    :parser #'json-read
+    :headers (list (toggl-prepare-auth-header)
+                   '("Content-Type" . "application/json"))
+    :success success-fun
+    :error error-fun
+    :sync sync
+    :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-delete (request &optional sync success-fun error-fun timeout)
   "Send a DELETE REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
-           :type "DELETE"
-           ;; :parser #'buffer-string
-           :headers (list (toggl-prepare-auth-header))
-           :success success-fun
-           :error error-fun
-           :sync sync
-           :timeout (or timeout toggl-default-timeout)))
+    :type "DELETE"
+    ;; :parser #'buffer-string
+    :headers (list (toggl-prepare-auth-header))
+    :success success-fun
+    :error error-fun
+    :sync sync
+    :timeout (or timeout toggl-default-timeout)))
 
 (defvar toggl-projects nil
   "A list of available projects.
@@ -285,21 +285,21 @@ By default, delete the current one."
                                             month-end
                                             year-end))))
           (toggl-request-post
-     (format "workspaces/%s/time_entries" toggl-workspace-id)
-     (json-encode `(("description" . ,heading)
-                    ("project_id" . ,pid)
-                    ("created_with" . "mbork's Emacs toggl client")
-                    ("start" . ,(format-time-string "%FT%TZ" start-time t))
-                    ("stop" . ,(format-time-string "%FT%TZ" stop-time t))
-                    ("workspace_id" . ,toggl-workspace-id)))
-     nil
-     (cl-function
-      (lambda (&key data &allow-other-keys)
-        (setq toggl-current-time-entry data)
-        (when show-message (message "Toggl time entry submitted."))))
-     (cl-function
-      (lambda (&key error-thrown &allow-other-keys)
-        (when show-message (message "Starting time entry failed because %s" error-thrown))))))
+           (format "workspaces/%s/time_entries" toggl-workspace-id)
+           (json-encode `(("description" . ,heading)
+                          ("project_id" . ,pid)
+                          ("created_with" . "mbork's Emacs toggl client")
+                          ("start" . ,(format-time-string "%FT%TZ" start-time t))
+                          ("stop" . ,(format-time-string "%FT%TZ" stop-time t))
+                          ("workspace_id" . ,toggl-workspace-id)))
+           nil
+           (cl-function
+            (lambda (&key data &allow-other-keys)
+              (setq toggl-current-time-entry data)
+              (when show-message (message "Toggl time entry submitted."))))
+           (cl-function
+            (lambda (&key error-thrown &allow-other-keys)
+              (when show-message (message "Starting time entry failed because %s" error-thrown))))))
       (error "No clock at point"))))
 
 (define-minor-mode org-toggl-integration-mode
