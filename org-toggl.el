@@ -64,7 +64,7 @@ workspace id."
 
 (defun toggl-request-get (request &optional sync success-fun error-fun timeout)
   "Send a GET REQUEST to toggl.com, with TIMEOUT.
-Add the auth token)."
+Add the auth token."
   (request (toggl-create-api-url request)
     :parser #'json-read
     :headers (list (toggl-prepare-auth-header))
@@ -75,7 +75,7 @@ Add the auth token)."
 
 (defun toggl-request-post (request data &optional sync success-fun error-fun timeout)
   "Send a POST REQUEST to toggl.com, with TIMEOUT.
-Add the auth token)."
+Add the auth token."
   (request (toggl-create-api-url request)
     :type "POST"
     :data data
@@ -89,7 +89,7 @@ Add the auth token)."
 
 (defun toggl-request-put (request data &optional sync success-fun error-fun timeout)
   "Send a PUT REQUEST to toggl.com, with TIMEOUT.
-Add the auth token)."
+Add the auth token."
   (request (toggl-create-api-url request)
     :type "PUT"
     :data data
@@ -103,7 +103,7 @@ Add the auth token)."
 
 (defun toggl-request-patch (request data &optional sync success-fun error-fun timeout)
   "Send a PATCH REQUEST to toggl.com, with TIMEOUT.
-Add the auth token)."
+Add the auth token."
   (request (toggl-create-api-url request)
     :type "PATCH"
     :data data
@@ -117,7 +117,7 @@ Add the auth token)."
 
 (defun toggl-request-delete (request &optional sync success-fun error-fun timeout)
   "Send a DELETE REQUEST to toggl.com, with TIMEOUT.
-Add the auth token)."
+Add the auth token."
   (request (toggl-create-api-url request)
     :type "DELETE"
     ;; :parser #'buffer-string
