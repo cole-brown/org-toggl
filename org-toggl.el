@@ -162,6 +162,32 @@ It is assumed that no two projects have the same name."
   (interactive (list (completing-read "Default project: " toggl-projects nil t)))
   (setq toggl-default-project (toggl-get-pid project)))
 
+(defvar toggl-tags nil
+  "A list of available tags.
+Each tag is a cons cell with car equal to its name and cdr to
+its id.")
+
+(defun toggl-get-tags ()
+  "Fill in `toggl-tags' (asynchronously)."
+  (interactive)
+  ;; NOTE: Using same API endpoint as `toggl-get-projects'. Could combine both
+  ;; into one REST call instead of 2 if we want?
+  (toggl-request-get
+   "me?with_related_data=true" ; https://developers.track.toggl.com/docs/api/me/index.html
+   nil
+   (cl-function
+    (lambda (&key data &allow-other-keys)
+      (setq toggl-tags
+            ;; Save `name' and `id' of each tag in the `tags' field.
+            (mapcar (lambda (tag)
+                      (cons (substring-no-properties (alist-get 'name tag))
+                            (alist-get 'id tag)))
+                    (alist-get 'tags data)))
+      (message "Toggl tags successfully downloaded.")))
+   (cl-function
+    (lambda (&key error-thrown &allow-other-keys)
+      (message "Fetching tags failed because %s" error-thrown)))))
+
 (defun toggl-start-time-entry (description &optional pid show-message)
   "Start Toggl time entry."
   (interactive "MDescription: \ni\np")
