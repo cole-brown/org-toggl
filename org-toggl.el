@@ -74,7 +74,7 @@ Add the auth token)."
 	   :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-post (request data &optional sync success-fun error-fun timeout)
-  "Send a GET REQUEST to toggl.com, with TIMEOUT.
+  "Send a POST REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
 	   :type "POST"
@@ -88,7 +88,7 @@ Add the auth token)."
 	   :timeout (or timeout toggl-default-timeout)))
 
 (defun toggl-request-put (request data &optional sync success-fun error-fun timeout)
-  "Send a GET REQUEST to toggl.com, with TIMEOUT.
+  "Send a PUT REQUEST to toggl.com, with TIMEOUT.
 Add the auth token)."
   (request (toggl-create-api-url request)
     :type "PUT"
