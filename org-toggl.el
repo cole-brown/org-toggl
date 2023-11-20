@@ -160,7 +160,7 @@ its id.")
   "Make PROJECT the default.
 It is assumed that no two projects have the same name."
   (interactive (list (completing-read "Default project: " toggl-projects nil t)))
-  (setq toggl-default-project (toggl-get-pid project)))
+  (setq toggl-default-project (toggl-get-project-id project)))
 
 (defvar toggl-tags nil
   "A list of available tags.
@@ -199,17 +199,17 @@ its id.")
   "Make TAG the default.
 It is assumed that no two tags have the same name."
   (interactive (list (completing-read "Default tag: " toggl-tags nil t)))
-  (setq toggl-default-tag (toggl-get-pid tag)))
+  (setq toggl-default-tag (toggl-get-project-id tag)))
 
-(defun toggl-start-time-entry (description &optional pid show-message)
+(defun toggl-start-time-entry (description &optional project-id show-message)
   "Start Toggl time entry."
   (interactive "MDescription: \ni\np")
-  (setq pid (or pid toggl-default-project))
+  (setq project-id (or project-id toggl-default-project))
   (toggl-request-post
    (format "workspaces/%s/time_entries" toggl-workspace-id)
    (json-encode `(("description" . ,description)
                   ("duration" . -1)
-                  ("project_id" . ,pid)
+                  ("project_id" . ,project-id)
                   ("created_with" . "mbork's Emacs toggl client")
                   ("start" . ,(format-time-string "%FT%TZ" nil t))
                   ("workspace_id" . ,toggl-workspace-id)))
@@ -260,8 +260,8 @@ By default, delete the current one."
       (lambda (&key error-thrown &allow-other-keys)
         (when show-message (message "Deleting time entry failed because %s" error-thrown)))))))
 
-(defun toggl-get-pid (project)
-  "Get PID given PROJECT's name."
+(defun toggl-get-project-id (project)
+  "Get the Project ID given PROJECT's name."
   (cdr (assoc project toggl-projects)))
 
 (defcustom org-toggl-inherit-toggl-properties nil
@@ -274,7 +274,7 @@ By default, delete the current one."
   (interactive)
   (let* ((heading (substring-no-properties (org-get-heading t t t t)))
          (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
-         (pid (toggl-get-pid project)))
+         (pid (toggl-get-project-id project)))
     (when pid (toggl-start-time-entry heading pid t))))
 
 (defun org-toggl-clock-out ()
@@ -302,7 +302,7 @@ By default, delete the current one."
     (if (eq (org-element-type element) 'clock)
         (let* ((heading (substring-no-properties (org-get-heading t t t t)))
                (project (org-entry-get (point) "toggl-project" org-toggl-inherit-toggl-properties))
-               (pid (or (toggl-get-pid project) toggl-default-project))
+               (pid (or (toggl-get-project-id project) toggl-default-project))
                (timestamp (org-element-property :value element))
                (year-start (org-element-property :year-start timestamp))
                (month-start (org-element-property :month-start timestamp))
