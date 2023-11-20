@@ -188,6 +188,19 @@ its id.")
     (lambda (&key error-thrown &allow-other-keys)
       (message "Fetching tags failed because %s" error-thrown)))))
 
+(defun toggl-get-tag-id (tag)
+  "Get the Tag ID given TAG's name."
+  (cdr (assoc tag toggl-tags)))
+
+(defvar toggl-default-tag nil
+  "ID of the default Toggl tag.")
+
+(defun toggl-select-default-tag (tag)
+  "Make TAG the default.
+It is assumed that no two tags have the same name."
+  (interactive (list (completing-read "Default tag: " toggl-tags nil t)))
+  (setq toggl-default-tag (toggl-get-pid tag)))
+
 (defun toggl-start-time-entry (description &optional pid show-message)
   "Start Toggl time entry."
   (interactive "MDescription: \ni\np")
@@ -276,6 +289,11 @@ By default, delete the current one."
   "Save PROJECT in the properties of the current Org headline."
   (interactive (list (completing-read "Toggl project for this headline: " toggl-projects nil t))) ; TODO: dry!
   (org-set-property "toggl-project" project))
+
+(defun org-toggl-set-tag (tag)
+  "Save TAG in the properties of the current Org headline."
+  (interactive (list (completing-read "Toggl tag for this headline: " toggl-tags nil t))) ; TODO: dry!
+  (org-set-property "toggl-tag" tag))
 
 (defun org-toggl-submit-clock-at-point (&optional show-message)
   "Submit the clock entry at point to Toggl."
