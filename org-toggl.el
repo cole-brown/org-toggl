@@ -50,6 +50,14 @@ workspace id."
   :type 'integer
   :group 'toggl)
 
+(defcustom toggl-case-insensitive case-fold-search
+  "Should org-toggl ignore string case when looking for projects/tags?
+
+If non-nil, ignore string case when trying to find a matching project (in
+`toggl-projects') or tag (in `toggl-tags'),"
+  :type 'boolean
+  :group 'toggl)
+
 (defvar toggl-api-url "https://api.track.toggl.com/api/v9/"
   "The URL for making API calls.")
 
@@ -188,18 +196,18 @@ its id.")
     (lambda (&key error-thrown &allow-other-keys)
       (message "Fetching tags failed because %s" error-thrown)))))
 
-(defun toggl-string=-case-insensitive (str1 str2)
-  "Compare strings STR1 and STR2, ignoring case."
-  (string= (upcase str1)
-           (upcase str2)))
+(defun toggl-string= (str1 str2)
+  "Compare strings STR1 and STR2 based on `toggl-case-insensitive'."
+  (if toggl-case-insensitive
+      (string= (upcase str1)
+               (upcase str2))
+    (string= str1 str2)))
 
-(defun toggl-get-tag-id (tag &optional case-sensitive)
+(defun toggl-get-tag-id (tag)
   "Get the integer Tag ID given TAG's ID or name.
 
 If TAG is an integer, assume it is a Tag ID and return it.
-If TAG is a string, search in `toggl-tags' and return an integer or nil.
-
-If CASE-SENSITIVE is non-nil, ignore case when finding the match to TAG."
+If TAG is a string, search in `toggl-tags' and return an integer or nil."
   (cond ((integerp tag)
          ;; Could still search (`rassoc' or something) in order to verify this
          ;; is a known Tag ID, but for now just assume the best and return it.
@@ -210,9 +218,7 @@ If CASE-SENSITIVE is non-nil, ignore case when finding the match to TAG."
                     toggl-tags
                     nil
                     nil
-                    (if case-sensitive
-                        #'string=
-                      #'toggl-string=-case-insensitive)))
+                    #'toggl-string=))
         (t
          ;; Unknown/invalid input TAG.
          nil)))
@@ -347,7 +353,7 @@ status of the Toggl API call."
      ;;---
      ((stringp tags)
       ;; Convert to a list of tags.
-      (if-let ((tag-id (toggl-get-tag-id tags nil)))
+      (if-let ((tag-id (toggl-get-tag-id tags)))
           (push `("tag_ids" . (,tag-id)) request-params)
         (setq success nil)
         (when show-message
@@ -408,9 +414,7 @@ If CASE-SENSITIVE is non-nil, ignore case when finding the match to PROJECT."
                     toggl-projects
                     nil
                     nil
-                    (if case-sensitive
-                        #'string=
-                      #'toggl-string=-case-insensitive)))
+                    #'toggl-string=))
         (t
          ;; Unknown/invalid input PROJECT.
          nil)))
