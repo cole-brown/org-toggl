@@ -223,14 +223,31 @@ If TAG is a string, search in `toggl-tags' and return an integer or nil."
          ;; Unknown/invalid input TAG.
          nil)))
 
-(defvar toggl-default-tag nil
-  "ID of the default Toggl tag.")
+(defvar toggl-default-tags nil
+  "List of integer IDs of the default Toggl tags or nil.")
 
-(defun toggl-select-default-tag (tag)
-  "Make TAG the default.
+(defun toggl-select-default-tags (&rest tags)
+  "Make TAGS the default.
+
 It is assumed that no two tags have the same name."
-  (interactive (list (completing-read "Default tag: " toggl-tags nil t)))
-  (setq toggl-default-tag (toggl-get-project-id tag)))
+  (interactive)
+  ;; Interactively prompt for the list of tags?
+  (when (and (called-interactively-p)
+             (not tags))
+    ;; `completing-read-multiple' is exactly what we want but it doesn't say
+    ;; what it's separator (`crm-separator') is or how it works, which makes it
+    ;; a bit noob-hostile...
+    (setq tags (completing-read-multiple "Default Tags: "
+                                         toggl-tags
+                                         nil
+                                         nil)))
+  (let ((tag-ids (seq-remove #'null (seq-map #'toggl-get-tag-id tags))))
+    (if tag-ids
+        (message "Set default tags to: %s"
+                 (seq-map (lambda (tag) (car (rassoc tag toggl-tags)))
+                          tag-ids))
+      (message "Cleared default tags: %s" tag-ids))
+    (setq toggl-default-tags tag-ids)))
 
 (defun toggl-start-time-entry (description &optional project-id show-message)
   "Start Toggl time entry."
@@ -306,7 +323,7 @@ PROJECT should be nil, an integer, or a string:
   - string: the name of a known project (in `toggl-projects')
 
 TAGS should be nil, an integer, a string, or a list of integers _or_ strings:
-  - nil for the default tag (`toggl-default-tag'), which can also be nil for
+  - nil for the default tag (`toggl-default-tags'), which can also be nil for
     'no tags'.
   - A list of just nil for 'no tags'.
   - The integer ID of an existing tag in `toggl-tags' (or list of such)
@@ -331,9 +348,9 @@ status of the Toggl API call."
      ;; Null Cases
      ;;---
      ((eq nil tags)
-      ;; Add the default tag as a list unless that's null.
-      (unless (eq nil toggl-default-tag)
-        (push `("tag_ids" . (,toggl-default-tag)) request-params)))
+      ;; Add the default tags if the exist.
+      (unless (proper-list-p toggl-default-tags)
+        (push `("tag_ids" . ,toggl-default-tags) request-params)))
      ((and (proper-list-p tags)
            (= 1 (length tags))
            (null (car tags)))
