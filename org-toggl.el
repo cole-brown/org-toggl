@@ -391,9 +391,29 @@ status of the Toggl API call."
         (lambda (&key error-thrown &allow-other-keys)
           (when show-message (message "Starting time entry failed because %s" error-thrown))))))))
 
-(defun toggl-get-project-id (project)
-  "Get the Project ID given PROJECT's name."
-  (cdr (assoc project toggl-projects)))
+(defun toggl-get-project-id (project &optional case-sensitive)
+  "Get the integer Project ID given PROJECT's ID or name.
+
+If PROJECT is an integer, assume it is a Project ID and return it.
+If PROJECT is a string, search in `toggl-projects' and return an integer or nil.
+
+If CASE-SENSITIVE is non-nil, ignore case when finding the match to PROJECT."
+  (cond ((integerp project)
+         ;; Could still search (`rassoc' or something) in order to verify this
+         ;; is a known Project ID, but for now just assume the best and return it.
+         project)
+        ((stringp project)
+         ;; Search for project in known projects and return its ID.
+         (alist-get project
+                    toggl-projects
+                    nil
+                    nil
+                    (if case-sensitive
+                        #'string=
+                      #'toggl-string=-case-insensitive)))
+        (t
+         ;; Unknown/invalid input PROJECT.
+         nil)))
 
 (defcustom org-toggl-inherit-toggl-properties nil
   "Make org-toggl use property inheritance."
