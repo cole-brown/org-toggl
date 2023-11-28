@@ -188,9 +188,34 @@ its id.")
     (lambda (&key error-thrown &allow-other-keys)
       (message "Fetching tags failed because %s" error-thrown)))))
 
-(defun toggl-get-tag-id (tag)
-  "Get the Tag ID given TAG's name."
-  (cdr (assoc tag toggl-tags)))
+(defun toggl-string=-case-insensitive (str1 str2)
+  "Compare strings STR1 and STR2, ignoring case."
+  (string= (upcase str1)
+           (upcase str2)))
+
+(defun toggl-get-tag-id (tag &optional case-sensitive)
+  "Get the integer Tag ID given TAG's ID or name.
+
+If TAG is an integer, assume it is a Tag ID and return it.
+If TAG is a string, search in `toggl-tags' and return an integer or nil.
+
+If CASE-SENSITIVE is non-nil, ignore case when finding the match to TAG."
+  (cond ((integerp tag)
+         ;; Could still search (`rassoc' or something) in order to verify this
+         ;; is a known Tag ID, but for now just assume the best and return it.
+         tag)
+        ((stringp tag)
+         ;; Search for tag in known tags and return its ID.
+         (alist-get tag
+                    toggl-tags
+                    nil
+                    nil
+                    (if case-sensitive
+                        #'string=
+                      #'toggl-string=-case-insensitive)))
+        (t
+         ;; Unknown/invalid input TAG.
+         nil)))
 
 (defvar toggl-default-tag nil
   "ID of the default Toggl tag.")
@@ -259,6 +284,112 @@ By default, delete the current one."
      (cl-function
       (lambda (&key error-thrown &allow-other-keys)
         (when show-message (message "Deleting time entry failed because %s" error-thrown)))))))
+
+(defun toggl-set-time-entry (description duration &optional project tags show-message)
+  "Start Toggl time entry.
+
+DESCRIPTION should be a string describing the time entry.
+
+DURATION should be an integer:
+  - -1 to create & start a running entry.
+  - Else a positive integer for number of seconds the entry should be.
+
+PROJECT should be nil, an integer, or a string:
+  - nil: the default project (`toggl-default-project')
+  - integer: the ID of a known project (in `toggl-projects')
+  - string: the name of a known project (in `toggl-projects')
+
+TAGS should be nil, an integer, a string, or a list of integers _or_ strings:
+  - nil for the default tag (`toggl-default-tag'), which can also be nil for
+    'no tags'.
+  - A list of just nil for 'no tags'.
+  - The integer ID of an existing tag in `toggl-tags' (or list of such)
+  - The tag name string of an existing tag in `toggl-tags' (or list of such)
+
+SHOW-MESSAGE, if non-nil, will display a success/failure message based on the
+status of the Toggl API call."
+  (interactive "MDescription: \ni\ni\np")
+  (let* ((project-id (or project-id toggl-default-project))
+         (request-params (list ("description" . description)
+                               ("duration" . duration)
+                               ("project_id" . project-id)
+                               ("created_with" . "mbork's Emacs toggl client")
+                               ("start" . (format-time-string "%FT%TZ" nil t))
+                               ("workspace_id" . toggl-workspace-id)))
+         (success t))
+    ;;------------------------------
+    ;; Normalize & add tag(s) to request if present.
+    ;;------------------------------
+    (cond
+     ;;---
+     ;; Null Cases
+     ;;---
+     ((eq nil tags)
+      ;; Add the default tag as a list unless that's null.
+      (unless (eq nil toggl-default-tag)
+        (push `("tag_ids" . (,toggl-default-tag)) request-params)))
+     ((and (proper-list-p tags)
+           (= 1 (length tags))
+           (null (car tags)))
+      ;; Explicitly no tags; nothing to do.
+      )
+     ;;---
+     ;; (integer) Tag ID Cases
+     ;;---
+     ((integerp tags)
+      ;; Convert to a list of tags.
+      (push `("tag_ids" . (,tags)) request-params))
+     ((and (proper-list-p tags)
+           (seq-every-p #'integerp tags))
+      (push `("tag_ids" . ,tags) request-params))
+     ;;---
+     ;; (string) Tag Name Cases
+     ;;---
+     ((stringp tags)
+      ;; Convert to a list of tags.
+      (if-let ((tag-id (toggl-get-tag-id tags nil)))
+          (push `("tag_ids" . (,tag-id)) request-params)
+        (setq success nil)
+        (when show-message
+          (message "Cannot start time entry; %S is not in the list of known tags (`toggl-tags')."
+                   tags))))
+     ((and (proper-list-p tags)
+           (seq-every-p #'stringp tags))
+      (let ((tag-ids (seq-map #'toggl-get-tag-id tags))) ;; name -> id
+        (if (seq-some #'null tag-ids)
+            ;; Something didn't convert to an ID.
+            (progn
+              (setq success nil)
+              (when show-message
+                (message "Cannot start time entry; %S is not in the list of known tags (`toggl-tags')."
+                         tags)))
+          ;; Ok; all valid IDs.
+          (push `("tag_ids" . ,tag-ids) request-params))))
+     ;;---
+     ;; (error) INVALID!
+     ;;---
+     (t
+      ;; Something invalid so don't add the tag ID(s) and message if asked.
+      ;; No tags I guess?
+      (setq success nil)
+      (when show-message
+        (message "Cannot start time entry because of invalid tag(s): %S" tags))))
+
+    ;;------------------------------
+    ;; REST API Call
+    ;;------------------------------
+    (when success
+      (toggl-request-post
+       (format "workspaces/%s/time_entries" toggl-workspace-id)
+       (json-encode )
+       nil
+       (cl-function
+        (lambda (&key data &allow-other-keys)
+          (setq toggl-current-time-entry data)
+          (when show-message (message "Toggl time entry started."))))
+       (cl-function
+        (lambda (&key error-thrown &allow-other-keys)
+          (when show-message (message "Starting time entry failed because %s" error-thrown))))))))
 
 (defun toggl-get-project-id (project)
   "Get the Project ID given PROJECT's name."
