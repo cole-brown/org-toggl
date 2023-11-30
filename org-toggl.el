@@ -58,6 +58,96 @@ If non-nil, ignore string case when trying to find a matching project (in
   :type 'boolean
   :group 'toggl)
 
+(defcustom toggl-default-start-time "-mon 8am"
+  "Default start time for `toggl-set-time-entry'.
+
+Value should be:
+  - A string that `org-read-date' can parse (e.g. \"-mon\" for \"last Monday\").
+  - A list/integer/etc understandable by `format-time-string'."
+  :type '(choice
+          (string :tag "`org-read-date' string")
+          (nil  :tag "nil for \"current time\"")
+          (integer :tag "seconds since epoch")
+          ((cons integer integer) :tag "An integer pair (TICKS . HZ) for TICKS/HZ seconds")
+          ((list integer integer integer integer) :tag "An integer list (HI LO US PS) for HI*2**16 + LO + US/10**6 + PS/10**12 second"))
+  :group 'toggl)
+
+(defun toggl-api-duration (duration)
+  "Get DURATION as an integer number of seconds for Toggl's API.
+
+Use `org-duration-to-minutes', which uses `org-duration-units' for some of the
+units it understands.
+
+Special Cases:
+  - \"running\" / \"ongoing\":
+    - DURATION of `:running' will return -1.
+    - A negative number as DURATION will return -1.
+
+examples:
+  (toggl-api-duration \"80h\")
+    -> 288000
+  (toggl-api-duration \"80:00:00\")
+    -> 288000
+  (toggl-api-duration 1)
+    -> 60
+  (toggl-api-duration :now)
+    -> -1"
+  (cond
+   ;;------------------------------
+   ;; Special Cases
+   ;;------------------------------
+   ((or (and (keywordp duration)
+             (eq :running duration))
+        (and (numberp duration)
+             ;; Any negative is accepted by API as a "running time entry",
+             ;; but -1 is "preferable".
+             (< duration 0)))
+    -1)
+   ;;------------------------------
+   ;; Standard Duration Parsing
+   ;;------------------------------
+   (t
+    (floor ; integer
+     (* 60 ; minutes -> seconds
+        ;; User-friendly/permissive as far as what all it'll parse as a duration.
+        (org-duration-to-minutes duration))))))
+
+(defun toggl-api-timestamp (time)
+  "Get TIME as a timestamp string in proper format for Toggl's API.
+
+Value should be:
+  - A string that `org-read-date' can parse (e.g. \"-mon\" for \"last Monday\").
+  - A list/integer/etc understandable by `format-time-string'.
+
+If TIME is nil or empty string, return timestamp for now.
+
+Toggl API expects ISO-8601 UTC strings. Format: 2006-01-02T15:04:05Z"
+  (format-time-string "%FT%TZ"
+                      (cond
+                       ;; "NOW"?
+                       ((or (null time)
+                            (and (stringp time)
+                                 (string= ""
+                                          (string-trim time))))
+                        nil)
+                       ;; User-friendly/permissive time strings.
+                       ((stringp time)
+                        (org-read-date :with-time ;; Want date & time.
+                                       :to-time   ;; Want raw/internal-emacs time so we can format ourself.
+                                       time)
+                        ;; Not a string, so it should be something that `format-time-string'
+                        ;; understands, so... just pass straight on to `toggl-api-timestamp'.
+                        time))
+                       ;; Want UTC timestamp.
+                       t))
+
+(defun toggl-default-start-timestamp ()
+  "Get `toggl-default-start-time' value normalized to ISO-8061 string.
+
+Return value is formatted by `toggl-api-timestamp' and can be fed into Toggl's
+APIs."
+  (toggl-api-timestamp toggl-default-start-time))
+
 (defvar toggl-api-url "https://api.track.toggl.com/api/v9/"
   "The URL for making API calls.")
 
@@ -255,11 +345,11 @@ It is assumed that no two tags have the same name."
   (setq project-id (or project-id toggl-default-project))
   (toggl-request-post
    (format "workspaces/%s/time_entries" toggl-workspace-id)
-   (json-encode `(("description" . ,description)
-                  ("duration" . -1)
-                  ("project_id" . ,project-id)
+   (json-encode `(("description"  . ,description)
+                  ("duration"     . ,(toggl-api-duration :now))
+                  ("project_id"   . ,project-id)
                   ("created_with" . "mbork's Emacs toggl client")
-                  ("start" . ,(format-time-string "%FT%TZ" nil t))
+                  ("start"        . ,(toggl-api-timestamp nil)) ; "UTC now"
                   ("workspace_id" . ,toggl-workspace-id)))
    nil
    (cl-function
@@ -280,7 +370,7 @@ It is assumed that no two tags have the same name."
                toggl-workspace-id
                time-entry-id)
        (json-encode `(("time_entry_id" . ,time-entry-id)
-                      ("workspace_id" . ,toggl-workspace-id)))
+                      ("workspace_id"  . ,toggl-workspace-id)))
        nil
        (cl-function
         (lambda (&key data &allow-other-keys)
@@ -308,14 +398,18 @@ By default, delete the current one."
       (lambda (&key error-thrown &allow-other-keys)
         (when show-message (message "Deleting time entry failed because %s" error-thrown)))))))
 
-(defun toggl-set-time-entry (description duration &optional project tags show-message)
-  "Start Toggl time entry.
+(defun toggl-create-time-entry (description start duration &optional project tags show-message)
+  "Create a Toggl time entry of a specific duration.
 
 DESCRIPTION should be a string describing the time entry.
 
 DURATION should be an integer:
   - -1 to create & start a running entry.
   - Else a positive integer for number of seconds the entry should be.
+
+START should be:
+  1. nil or empty string for \"use the default start time (`toggl-default-start-time')\"
+  2. a string that `org-read-date' understands
 
 PROJECT should be nil, an integer, or a string:
   - nil: the default project (`toggl-default-project')
@@ -330,15 +424,31 @@ TAGS should be nil, an integer, a string, or a list of integers _or_ strings:
   - The tag name string of an existing tag in `toggl-tags' (or list of such)
 
 SHOW-MESSAGE, if non-nil, will display a success/failure message based on the
-status of the Toggl API call."
-  (interactive "MDescription: \ni\ni\np")
-  (let* ((project-id (or project-id toggl-default-project))
-         (request-params (list ("description" . description)
-                               ("duration" . duration)
-                               ("project_id" . project-id)
+status of the Toggl API call.
+
+https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
+  (interactive
+   (list
+    (read-string "Description: ")
+    (read-string "Start Time: ")
+    (read-string "Duration: ")
+    ;; TODO: completing-read helper for project.
+    (read-string "Project: ")
+    ;; TODO: completing-read helper for tags. (Do I already have one somewhere?)
+    (read-string "Tags: ")
+    ;; Always show message unless prefix arg is present.
+    (not (null current-prefix-arg))))
+
+  (let* ((request-params (list ("workspace_id" . toggl-workspace-id))
+                               ("project_id"   . (toggl-get-project-id (or project toggl-default-project)))
                                ("created_with" . "mbork's Emacs toggl client")
-                               ("start" . (format-time-string "%FT%TZ" nil t))
-                               ("workspace_id" . toggl-workspace-id)))
+                               ("description"  . description)
+                               ("start"        . (if (or (null start)
+                                                         (and (stringp start)
+                                                              (string= "" (string-trim start))))
+                                                     (toggl-default-start-timestamp)
+                                                   (toggl-api-timestamp start)))
+                               ("duration"     . (toggl-api-duration duration)))
          (success t))
     ;;------------------------------
     ;; Normalize & add tag(s) to request if present.
@@ -404,15 +514,15 @@ status of the Toggl API call."
     (when success
       (toggl-request-post
        (format "workspaces/%s/time_entries" toggl-workspace-id)
-       (json-encode )
+       (json-encode request-params)
        nil
        (cl-function
         (lambda (&key data &allow-other-keys)
           (setq toggl-current-time-entry data)
-          (when show-message (message "Toggl time entry started."))))
+          (when show-message (message "Time entry created."))))
        (cl-function
         (lambda (&key error-thrown &allow-other-keys)
-          (when show-message (message "Starting time entry failed because %s" error-thrown))))))))
+          (when show-message (message "[FAILURE] Creating a time entry failed because: %s" error-thrown))))))))
 
 (defun toggl-get-project-id (project &optional case-sensitive)
   "Get the integer Project ID given PROJECT's ID or name.
@@ -502,11 +612,11 @@ If CASE-SENSITIVE is non-nil, ignore case when finding the match to PROJECT."
                                             year-end))))
           (toggl-request-post
            (format "workspaces/%s/time_entries" toggl-workspace-id)
-           (json-encode `(("description" . ,heading)
-                          ("project_id" . ,pid)
+           (json-encode `(("description"  . ,heading)
+                          ("project_id"   . ,pid)
                           ("created_with" . "mbork's Emacs toggl client")
-                          ("start" . ,(format-time-string "%FT%TZ" start-time t))
-                          ("stop" . ,(format-time-string "%FT%TZ" stop-time t))
+                          ("start"        . ,(toggl-api-timestamp start-time))
+                          ("stop"         . ,(toggl-api-timestamp stop-time ))
                           ("workspace_id" . ,toggl-workspace-id)))
            nil
            (cl-function
