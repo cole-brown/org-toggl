@@ -233,12 +233,14 @@ its id.")
 (defvar toggl-current-time-entry nil
   "Data of the current Toggl time entry.")
 
-(defun toggl-get-projects ()
-  "Fill in `toggl-projects' (asynchronously)."
+(defun toggl-get-projects (&optional sync)
+  "Fill in `toggl-projects'.
+
+Asynchronous if SYNC is nil."
   (interactive)
   (toggl-request-get
    "me?with_related_data=true"
-   nil
+   sync
    (cl-function
     (lambda (&key data &allow-other-keys)
       (setq toggl-projects
@@ -254,25 +256,51 @@ its id.")
 (defvar toggl-default-project nil
   "Id of the default Toggl project.")
 
-(defun toggl-select-default-project (project)
+(defun toggl-select-default-project (&optional project)
   "Make PROJECT the default.
 It is assumed that no two projects have the same name."
-  (interactive (list (completing-read "Default project: " toggl-projects nil t)))
+  (interactive)
+  ;; Interactively prompt for the list of tags?
+  (when (and (called-interactively-p)
+             (not project))
+    (setq project (toggl-prompt-project "Default Project: ")))
+
   (setq toggl-default-project (toggl-get-project-id project)))
+
+(defun toggl-prompt-project (&optional prompt)
+  "Prompt user for a project from `toggl-projects', return the project's ID.
+
+PROMPT string or \"Toggl Project: \" will be used in minibuffer prompt."
+  (when (null toggl-projects)
+    (toggl-get-projects :sync))
+
+  (toggl-get-project-id
+   ;; Prompt user for project name, w/ completion help.
+   (completing-read (or prompt "Toggl Project: ")
+                    toggl-projects
+                    nil
+                    t)
+             toggl-projects
+             nil
+             nil
+             #'toggl-string=))
+;; (toggl-prompt-project)
 
 (defvar toggl-tags nil
   "A list of available tags.
 Each tag is a cons cell with car equal to its name and cdr to
 its id.")
 
-(defun toggl-get-tags ()
-  "Fill in `toggl-tags' (asynchronously)."
+(defun toggl-get-tags (&optional sync)
+  "Fill in `toggl-tags'.
+
+Asynchronous if SYNC is nil."
   (interactive)
   ;; NOTE: Using same API endpoint as `toggl-get-projects'. Could combine both
   ;; into one REST call instead of 2 if we want?
   (toggl-request-get
    "me?with_related_data=true" ; https://developers.track.toggl.com/docs/api/me/index.html
-   nil
+   sync
    (cl-function
     (lambda (&key data &allow-other-keys)
       (setq toggl-tags
@@ -327,17 +355,33 @@ It is assumed that no two tags have the same name."
     ;; `completing-read-multiple' is exactly what we want but it doesn't say
     ;; what it's separator (`crm-separator') is or how it works, which makes it
     ;; a bit noob-hostile...
-    (setq tags (completing-read-multiple "Default Tags: "
-                                         toggl-tags
-                                         nil
-                                         nil)))
-  (let ((tag-ids (seq-remove #'null (seq-map #'toggl-get-tag-id tags))))
-    (if tag-ids
-        (message "Set default tags to: %s"
-                 (seq-map (lambda (tag) (car (rassoc tag toggl-tags)))
-                          tag-ids))
-      (message "Cleared default tags: %s" tag-ids))
-    (setq toggl-default-tags tag-ids)))
+    (setq tags (toggl-prompt-tags "Default Tags: ")))
+
+  ;; Make sure they're tag IDs.
+  (setq toggl-default-tags (seq-remove #'null (seq-map #'toggl-get-tag-id tags)))
+
+  (if toggl-default-tags
+      (message "Set default tags to: %s"
+               (seq-map (lambda (tag) (car (rassoc tag toggl-tags)))
+                        toggl-default-tags))
+    (message "Cleared default tags: %s" toggl-default-tags)))
+
+(defun toggl-prompt-tags (&optional prompt)
+  "Prompt user for a list of tag from `toggl-tags', return list of tag IDs.
+
+PROMPT string or \"Toggl Tags: \" will be used in minibuffer prompt."
+  (when (null toggl-tags)
+    (toggl-get-tags))
+
+  ;; `completing-read-multiple' is exactly what we want but it doesn't say
+  ;; what it's separator (`crm-separator') is or how it works, which makes it
+  ;; a bit noob-hostile...
+  (let ((tag-names (completing-read-multiple (or prompt "Default Tags: ")
+                                             toggl-tags
+                                             nil
+                                             nil)))
+    ;; Convert names to IDs and delete any invalids.
+    (seq-remove #'null (seq-map #'toggl-get-tag-id tag-names))))
 
 (defun toggl-start-time-entry (description &optional project-id show-message)
   "Start Toggl time entry."
@@ -524,13 +568,11 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
         (lambda (&key error-thrown &allow-other-keys)
           (when show-message (message "[FAILURE] Creating a time entry failed because: %s" error-thrown))))))))
 
-(defun toggl-get-project-id (project &optional case-sensitive)
+(defun toggl-get-project-id (project)
   "Get the integer Project ID given PROJECT's ID or name.
 
 If PROJECT is an integer, assume it is a Project ID and return it.
-If PROJECT is a string, search in `toggl-projects' and return an integer or nil.
-
-If CASE-SENSITIVE is non-nil, ignore case when finding the match to PROJECT."
+If PROJECT is a string, search in `toggl-projects' and return an integer or nil."
   (cond ((integerp project)
          ;; Could still search (`rassoc' or something) in order to verify this
          ;; is a known Project ID, but for now just assume the best and return it.
