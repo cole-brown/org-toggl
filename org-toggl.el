@@ -72,6 +72,42 @@ Value should be:
           ((list integer integer integer integer) :tag "An integer list (HI LO US PS) for HI*2**16 + LO + US/10**6 + PS/10**12 second"))
   :group 'toggl)
 
+(defun toggl-parse-duration (input)
+  "Parse INPUT, return duration as integer number of seconds or nil."
+  (let ((input (string-trim input)))
+    ;; Maybe Org can parse it?
+    (condition-case nil
+        (floor ; integer
+         (* 60 ; minutes -> seconds
+            (org-duration-to-minutes input)))
+      ;; `org-duration-to-minutes' raises `error' when it doesn't understand its input.
+      (error
+       ;; Maybe it's an ISO-8601 duration?
+       (condition-case nil
+           (let ((duration (iso8601-parse-duration input)))
+             ;; Convert to (integer) seconds.
+             (floor
+              (+ (decoded-time-second duration)
+                 (* (decoded-time-minute duration) 60)
+                 (* (decoded-time-hour   duration) 60 60)
+                 (* (decoded-time-day    duration) 60 60 24)
+                 ;; Why bother supporting more than days? Months & years are
+                 ;; messy to calculate duration of and this is for timecards.
+                 )))
+         ;; `iso-8601-parse-duration' raises `wrong-type-argument' when it doesn't understand its input.
+         (wrong-type-argument
+          ;; IDK... Ignore error and return something invalid?
+          nil))))))
+
+(defun toggl-prompt-duration (prompt &optional default-input)
+  "Prompt user for a duration, return an integer number of seconds.
+
+PROMPT string will be used in minibuffer prompt.
+
+DEFAULT-INPUT, if non-nil, will be provided as the already-filled-in input to
+the prompt."
+  (toggl-parse-duration (read-string prompt nil nil default-input)))
+
 (defun toggl-api-duration (duration)
   "Get DURATION as an integer number of seconds for Toggl's API.
 
@@ -103,43 +139,68 @@ examples:
              ;; but -1 is "preferable".
              (< duration 0)))
     -1)
+   ((integerp duration)
+    ;; Assume this integer is the correct units (seconds).
+    duration)
    ;;------------------------------
    ;; Standard Duration Parsing
    ;;------------------------------
-   (t
-    (floor ; integer
-     (* 60 ; minutes -> seconds
-        ;; User-friendly/permissive as far as what all it'll parse as a duration.
-        (org-duration-to-minutes duration))))))
+   ((stringp duration)
+    (toggl-parse-duration duration))))
+
+(defun toggl-prompt-time (prompt &optional default-input)
+  "Prompt user for a datetime, return an Emacs time cons.
+
+PROMPT string will be used in minibuffer prompt.
+
+DEFAULT-INPUT, if non-nil, will be provided as the already-filled-in input to
+the prompt."
+  (org-read-date :with-time ; Want date & time.
+                 :to-time   ; Want raw/internal-emacs time so we can format ourself.
+                 nil
+                 prompt
+                 nil
+                 default-input))
 
 (defun toggl-api-timestamp (time)
   "Get TIME as a timestamp string in proper format for Toggl's API.
 
 Value should be:
+  - An already valid timestamp string (e.g. \"2023-11-30T11:32:20Z\").
   - A string that `org-read-date' can parse (e.g. \"-mon\" for \"last Monday\").
   - A list/integer/etc understandable by `format-time-string'.
 
 If TIME is nil or empty string, return timestamp for now.
 
-Toggl API expects ISO-8601 UTC strings. Format: 2006-01-02T15:04:05Z"
-  (format-time-string "%FT%TZ"
-                      (cond
-                       ;; "NOW"?
-                       ((or (null time)
-                            (and (stringp time)
-                                 (string= ""
-                                          (string-trim time))))
-                        nil)
-                       ;; User-friendly/permissive time strings.
-                       ((stringp time)
-                        (org-read-date :with-time ;; Want date & time.
-                                       :to-time   ;; Want raw/internal-emacs time so we can format ourself.
-                                       time)
-                        ;; Not a string, so it should be something that `format-time-string'
-                        ;; understands, so... just pass straight on to `toggl-api-timestamp'.
-                        time))
-                       ;; Want UTC timestamp.
-                       t))
+Toggl API expects ISO-8601 UTC strings. Format: 2023-11-30T11:32:20Z"
+  ;; Is it already properly formatted?
+  ;; `org-read-date' doesn't work 100% with ISO-8601 datetimes-
+  ;; it loses the time half of the thing- so check for and
+  ;; pass along those valid ISO-8601 timestamps.
+  (if (and (stringp time)
+           (iso8601-valid-p time))
+      ;; Return ISO-8601 string as-is.
+      time
+    ;; Figure out the time and then format correctly.
+    (format-time-string "%FT%TZ"
+                        (cond
+                         ;; "NOW"?
+                         ((or (null time)
+                              (and (stringp time)
+                                   (string= ""
+                                            (string-trim time))))
+                          nil)
+                         ;; User-friendly/permissive time strings.
+                         ((stringp time)
+                          (org-read-date :with-time ; Want date & time.
+                                         :to-time   ; Want raw/internal-emacs time so we can format ourself.
+                                         time))
+                         (t
+                          ;; Not a string, so it should be something that `format-time-string'
+                          ;; understands?
+                          time))
+                        ;; Want UTC timestamp.
+                        t)))
 
 (defun toggl-default-start-timestamp ()
   "Get `toggl-default-start-time' value normalized to ISO-8061 string.
