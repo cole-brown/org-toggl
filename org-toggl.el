@@ -291,9 +291,6 @@ Add the auth token."
 Each project is a cons cell with car equal to its name and cdr to
 its id.")
 
-(defvar toggl-current-time-entry nil
-  "Data of the current Toggl time entry.")
-
 (defun toggl-get-projects (&optional sync)
   "Fill in `toggl-projects'.
 
@@ -328,24 +325,30 @@ It is assumed that no two projects have the same name."
 
   (setq toggl-default-project (toggl-get-project-id project)))
 
-(defun toggl-prompt-project (&optional prompt)
+(defun toggl-prompt-project (prompt &optional default-input)
   "Prompt user for a project from `toggl-projects', return the project's ID.
 
-PROMPT string or \"Toggl Project: \" will be used in minibuffer prompt."
+PROMPT string will be used in minibuffer prompt.
+
+DEFAULT-INPUT, if non-nil, will be provided as the already-filled-in input to
+the prompt."
   (when (null toggl-projects)
     (toggl-get-projects :sync))
 
   (toggl-get-project-id
    ;; Prompt user for project name, w/ completion help.
-   (completing-read (or prompt "Toggl Project: ")
+   (completing-read prompt
                     toggl-projects
                     nil
-                    t)
+                    t
+                    (if (numberp default-input)
+                        (car (rassoc default-input toggl-projects))
+                      default-input)
              toggl-projects
              nil
              nil
              #'toggl-string=))
-;; (toggl-prompt-project)
+;; (toggl-prompt-project "hi: " "hello")
 
 (defvar toggl-tags nil
   "A list of available tags.
@@ -427,20 +430,32 @@ It is assumed that no two tags have the same name."
                         toggl-default-tags))
     (message "Cleared default tags: %s" toggl-default-tags)))
 
-(defun toggl-prompt-tags (&optional prompt)
+(defun toggl-prompt-tags (prompt &optional default-input)
   "Prompt user for a list of tag from `toggl-tags', return list of tag IDs.
 
-PROMPT string or \"Toggl Tags: \" will be used in minibuffer prompt."
+PROMPT string or \"Toggl Tags: \" will be used in minibuffer prompt.
+
+DEFAULT-INPUT, if non-nil, will be provided as the already-filled-in input to
+the prompt."
   (when (null toggl-tags)
     (toggl-get-tags))
 
   ;; `completing-read-multiple' is exactly what we want but it doesn't say
   ;; what it's separator (`crm-separator') is or how it works, which makes it
   ;; a bit noob-hostile...
-  (let ((tag-names (completing-read-multiple (or prompt "Default Tags: ")
+  (let ((tag-names (completing-read-multiple (or prompt "Toggl Tags: ")
                                              toggl-tags
                                              nil
-                                             nil)))
+                                             nil
+                                             (if (proper-list-p default-input)
+                                                 ;; Convert list of tag IDs to CSV of tag names.
+                                                 (mapconcat #'identity
+                                                            (seq-remove #'null
+                                                                        (seq-map (lambda (tag-id)
+                                                                                   (car (rassoc tag-id toggl-projects)))
+                                                                                 default-input))
+                                                            ", ")
+                                               default-input))))
     ;; Convert names to IDs and delete any invalids.
     (seq-remove #'null (seq-map #'toggl-get-tag-id tag-names))))
 
@@ -535,13 +550,11 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
   (interactive
    (list
     (read-string "Description: ")
-    (read-string "Start Time: ")
-    (read-string "Duration: ")
-    ;; TODO: completing-read helper for project.
-    (read-string "Project: ")
-    ;; TODO: completing-read helper for tags. (Do I already have one somewhere?)
-    (read-string "Tags: ")
-    ;; Always show message unless prefix arg is present.
+    (toggl-prompt-time     "Start Time: " toggl-default-start-time)
+    (toggl-prompt-duration "Duration: ")
+    (toggl-prompt-project  "Project: "    toggl-default-project)
+    (toggl-prompt-tags     "Tags: "       toggl-default-tags)
+    ;; Always show messages unless prefix arg is present.
     (not (null current-prefix-arg))))
 
   (let* ((request-params (list ("workspace_id" . toggl-workspace-id))
@@ -555,6 +568,7 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
                                                    (toggl-api-timestamp start)))
                                ("duration"     . (toggl-api-duration duration)))
          (success t))
+
     ;;------------------------------
     ;; Normalize & add tag(s) to request if present.
     ;;------------------------------
@@ -563,8 +577,12 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
      ;; Null Cases
      ;;---
      ((eq nil tags)
-      ;; Add the default tags if the exist.
-      (unless (proper-list-p toggl-default-tags)
+      ;; No tags? If interactive, that means the user has no default tags or
+      ;; deleted the default from the prompt. So they actively asked for
+      ;; "nothing". So give them nothing.
+      (when (and (not (called-interactively-p))
+                 ;; Add the default tags if the exist.
+                 (proper-list-p toggl-default-tags))
         (push `("tag_ids" . ,toggl-default-tags) request-params)))
      ((and (proper-list-p tags)
            (= 1 (length tags))
@@ -593,14 +611,15 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
                    tags))))
      ((and (proper-list-p tags)
            (seq-every-p #'stringp tags))
-      (let ((tag-ids (seq-map #'toggl-get-tag-id tags))) ;; name -> id
+      (let ((tag-ids (seq-map #'toggl-get-tag-id tags))) ; name -> id
         (if (seq-some #'null tag-ids)
             ;; Something didn't convert to an ID.
             (progn
               (setq success nil)
               (when show-message
-                (message "Cannot start time entry; %S is not in the list of known tags (`toggl-tags')."
-                         tags)))
+                (message "Cannot start time entry; unknown tag (for known tags see `toggl-tags') in: %S -> %S"
+                         tags
+                         tag-ids)))
           ;; Ok; all valid IDs.
           (push `("tag_ids" . ,tag-ids) request-params))))
      ;;---
@@ -611,7 +630,8 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
       ;; No tags I guess?
       (setq success nil)
       (when show-message
-        (message "Cannot start time entry because of invalid tag(s): %S" tags))))
+        (message "Cannot start time entry; invalid tag(s) probably? (for known tags see `toggl-tags'): %S"
+                 tags))))
 
     ;;------------------------------
     ;; REST API Call
@@ -628,6 +648,98 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
        (cl-function
         (lambda (&key error-thrown &allow-other-keys)
           (when show-message (message "[FAILURE] Creating a time entry failed because: %s" error-thrown))))))))
+
+(defvar toggl-current-time-entry nil
+  "Data of the current Toggl time entry.")
+
+(defvar toggl-time-entries nil
+  "List of data of the latest time entries.")
+
+(defun toggl--time-entry (time-entry-id)
+  "Get a time entry plist from `toggl-time-entries'.
+
+TIME-ENTRY-ID should be an integer key in `toggl-time-entries' alist."
+  (alist-get time-entry-id
+             toggl-time-entries))
+
+(defun toggl--time-entry-field (time-entry-or-id field)
+  "Get time entry FIELD value for TIME-ENTRY-OR-ID.
+
+TIME-ENTRY-OR-ID should be an integer key in `toggl-time-entries' alist.
+
+FIELD should be one of the keywords:
+  `:description', `:start', `:stop', `:duration',
+  `:project-id', `:tag-names', `:tag-ids'"
+  (plist-get (cond ((plistp time-entry-or-id)
+                    time-entry-or-id)
+                   ((integerp time-entry-or-id)
+                    (toggl--time-entry time-entry-or-id)))
+             field))
+
+(defun toggl-get-time-entries (&optional sync)
+  "Fill in `toggl-time-entries'.
+
+Asynchronous if SYNC is nil."
+  (interactive)
+  (toggl-request-get
+   "me?with_related_data=true"
+   sync
+   (cl-function
+    (lambda (&key data &allow-other-keys)
+      (setq toggl-time-entries
+            (mapcar (lambda (time-entry)
+                      ;; Need more than just "Name & ID" for time entries.
+                      (cons
+                      ;; alist by ID; rest of stuff in plist?
+                       (alist-get 'id time-entry)
+                       (list
+                        :description (substring-no-properties (alist-get 'description time-entry))
+                        :start       (alist-get 'start      time-entry)
+                        :stop        (alist-get 'stop       time-entry)
+                        :duration    (alist-get 'duration   time-entry)
+                        :project-id  (alist-get 'project_id time-entry)
+                        :tag-names   (alist-get 'tags       time-entry)
+                        :tag-ids     (alist-get 'tag_ids    time-entry))))
+                    (alist-get 'time_entries data)))
+      (message "Toggl time entries successfully downloaded.")))
+   (cl-function
+    (lambda (&key error-thrown &allow-other-keys)
+      (message "Fetching time entries failed because %s" error-thrown)))))
+
+(defun toggl--parse-timestamp (timestamp)
+  "Parse TIMESTAMP sting into a time struct.
+
+Return time struct like `decode-time':
+  (SECS MINS HOURS DAY MONTH YEAR DOW DST UTCOFF)"
+  (iso8601-parse timestamp))
+
+(defun toggl--timestamp-local (time)
+  "Return timestamp string of TIME in local time.
+
+TIME should be a timestamp string or a time struct."
+  (format-time-string "%FT%T%z"
+                      (cond
+                       ;; "Lisp time" like from `current-time'.
+                       ((and (proper-list-p time)
+                             ;; Cover both of these time "forms":
+                             ;; (current-time)
+                             ;;   -> (25962 14924 669578 837000)
+                             ;; (encode-time (decode-time (current-time)))
+                             ;;   -> (25962 14925)
+                             (memq (length time) '(2 4)))
+                        ;; `format-time-string' understands this input format.
+                        time)
+                       ;; "Calendrical information" like from `decode-time', `toggl--parse-timestamp'.
+                       ((and (proper-list-p time)
+                             (= 9 (length time)))
+                        ;; `format-time-string' doesn't understand; convert to "lisp time".
+                        (encode-time time))
+                       ;; Timestamp string needs parsed so it can be timezone converted.
+                       ((stringp time)
+                        (encode-time (toggl--parse-timestamp time))))
+                      ;; nil == "convert to local time"
+                      ;; t == "convert to UTC"
+                      nil))
 
 (defun toggl-get-project-id (project)
   "Get the integer Project ID given PROJECT's ID or name.
