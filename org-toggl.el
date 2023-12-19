@@ -108,6 +108,10 @@ DEFAULT-INPUT, if non-nil, will be provided as the already-filled-in input to
 the prompt."
   (toggl-parse-duration (read-string prompt nil nil default-input)))
 
+(defun toggl--duration-display (seconds)
+  "Convert integer number of SECONDS to a display string."
+  (org-duration-from-minutes (/ seconds 60.0) 'h:mm:ss))
+
 (defun toggl-api-duration (duration)
   "Get DURATION as an integer number of seconds for Toggl's API.
 
@@ -310,6 +314,19 @@ Asynchronous if SYNC is nil."
    (cl-function
     (lambda (&key error-thrown &allow-other-keys)
       (message "Fetching projects failed because %s" error-thrown)))))
+
+(defun toggl--project-field (project-or-id field)
+  "Get project FIELD value for PROJECT-OR-ID.
+
+PROJECT-OR-ID should be an integer project ID or a project struct (list).
+
+FIELD should be one of the keywords:
+  `:id', `:name'"
+  (let* ((project-id (toggl-get-project-id project-or-id))
+         (project (rassoc project-id toggl-projects)))
+    (pcase field
+      (:name (car project))
+      (:id   (cdr project)))))
 
 (defvar toggl-default-project nil
   "Id of the default Toggl project.")
@@ -655,12 +672,25 @@ https://developers.track.toggl.com/docs/api/time_entries#post-timeentries"
 (defvar toggl-time-entries nil
   "List of data of the latest time entries.")
 
-(defun toggl--time-entry (time-entry-id)
+(defun toggl--time-entry (time-entry)
   "Get a time entry plist from `toggl-time-entries'.
 
-TIME-ENTRY-ID should be an integer key in `toggl-time-entries' alist."
-  (alist-get time-entry-id
-             toggl-time-entries))
+TIME-ENTRY should be an integer key in `toggl-time-entries' alist,
+or else it should be the actual time entry plist already."
+  (cond ((plistp time-entry)
+         ;; Assume this plist is a time-entry already.
+         time-entry)
+        ((and (proper-list-p time-entry)
+              (integerp (car time-entry))
+              (plistp (cdr time-entry)))
+         ;; (id . plist) is the format for `toggl-time-entries', so return the time-entry's plist.
+         (cdr time-entry))
+        ((integerp time-entry)
+         ;; Get by ID.
+         (alist-get time-entry
+                    toggl-time-entries))))
+;; (toggl--time-entry 3228200185)
+;; (toggl--time-entry (car toggl-time-entries))
 
 (defun toggl--time-entry-field (time-entry-or-id field)
   "Get time entry FIELD value for TIME-ENTRY-OR-ID.
@@ -675,6 +705,101 @@ FIELD should be one of the keywords:
                    ((integerp time-entry-or-id)
                     (toggl--time-entry time-entry-or-id)))
              field))
+
+;; (defun toggl--time-entry-display (time-entry-or-id)
+;;   "Format TIME-ENTRY-OR-ID as a display string.
+
+;; TIME-ENTRY-OR-ID should be an integer key in `toggl-time-entries' alist.
+
+;; Return formatted string or nil."
+;;   ;; If time entry doesn't exist, return nil.
+;;   (when-let ((time-entry (cond ((plistp time-entry-or-id)
+;;                                 time-entry-or-id)
+;;                                ((integerp time-entry-or-id)
+;;                                 (toggl--time-entry time-entry-or-id)))))
+
+;;     (format "%s/t%s/t%s/t%s - %s/t%s"
+;;             (toggl--time-entry-field time-entry :description)
+;;             (toggl--time-entry-field time-entry :project-id)
+;;             (toggl--time-entry-field time-entry :tag-names)
+;;             (toggl--time-entry-field time-entry :start)
+;;             (toggl--time-entry-field time-entry :stop)
+;;             (toggl--time-entry-field time-entry :duration))
+;;     )
+;;   )
+
+(defun toggl--time-entries-display (time-entries)
+  "Format TIME-ENTRIES as a display strings.
+
+TIME-ENTRIES should be a list of either:
+  - integers (i.e. keys in `toggl-time-entries' alist)
+  - time entry plists (i.e. values in `toggl-time-entries' alist)
+
+Return list of formatted strings."
+  (setq time-entries (seq-remove #'null (seq-map #'toggl--time-entry time-entries)))
+
+  ;; Toggl website displays time entries sort of tabulated, like:
+  ;;   > |-------------+--------------------------+------+---------------+----------|
+  ;;   > | Description | Project                  | Tags | Start - End   | Duration |
+  ;;   > |-------------+--------------------------+------+---------------+----------|
+  ;;   > | SICK        | Sick Day                 | OOO  | 10:54 - 18:54 |  8:00:00 |
+  ;;
+  ;; So do something similar.
+
+  ;;------------------------------
+  ;; Figure out all the widths for the formatting.
+  ;;------------------------------
+  (let ((width-description 0)
+        (width-project     0)
+        (width-tags        0)
+        (width-time        0)
+        (width-duration    0)
+        time-entries-display)
+
+    (dolist (time-entry time-entries)
+      ;; Build plist of display strings.
+      (let ((display-fields
+             (list :description (toggl--time-entry-field time-entry :description)
+                   :project     (toggl--project-field (toggl--time-entry-field time-entry :project-id)
+                                                      :name)
+                   :tags        (string-join (toggl--time-entry-field time-entry :tag-names) ", ")
+                   :start       (toggl--timestamp-local (toggl--time-entry-field time-entry :start))
+                   :stop        (toggl--timestamp-local (toggl--time-entry-field time-entry :stop))
+                   :duration    (toggl--duration-display (toggl--time-entry-field time-entry :duration)))))
+        ;; Figure out table cell widths.
+        (setq width-description (max (length (plist-get display-fields :description)) width-description)
+              width-project     (max (length (plist-get display-fields :project))     width-project)
+              width-tags        (max (length (plist-get display-fields :tags))        width-tags)
+              width-time        (max (length (plist-get display-fields :start))       width-time)
+              width-duration    (max (length (plist-get display-fields :duration))    width-duration))
+
+        (push display-fields time-entries-display)))
+
+    ;;------------------------------
+    ;; Actually do the formatting.
+    ;;------------------------------
+    ;; Build our formatting string.
+    (let ((time-entry-format (concat "%-" (format "%d" width-description) "s"
+                                     " | "
+                                     "%-" (format "%d" width-project) "s"
+                                     " | "
+                                     "%-" (format "%d" width-tags) "s"
+                                     " | "
+                                     "%" (format "%d" width-time) "s - %" (format "%d" width-time) "s"
+                                     " | "
+                                     "%" (format "%d" width-duration) "s"))
+          formatted-display-strings)
+      (dolist (display-entry time-entries-display)
+        (push
+         (format time-entry-format
+                 (plist-get display-entry :description)
+                 (plist-get display-entry :project)
+                 (plist-get display-entry :tags)
+                 (plist-get display-entry :start)
+                 (plist-get display-entry :stop)
+                 (plist-get display-entry :duration))
+         formatted-display-strings))
+      formatted-display-strings)))
 
 (defun toggl-get-time-entries (&optional sync)
   "Fill in `toggl-time-entries'.
