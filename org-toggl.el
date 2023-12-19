@@ -360,11 +360,7 @@ the prompt."
                     t
                     (if (numberp default-input)
                         (car (rassoc default-input toggl-projects))
-                      default-input)
-             toggl-projects
-             nil
-             nil
-             #'toggl-string=))
+                      default-input))))
 ;; (toggl-prompt-project "hi: " "hello")
 
 (defvar toggl-tags nil
@@ -698,12 +694,9 @@ or else it should be the actual time entry plist already."
 TIME-ENTRY-OR-ID should be an integer key in `toggl-time-entries' alist.
 
 FIELD should be one of the keywords:
-  `:description', `:start', `:stop', `:duration',
+  `:id', `:description', `:start', `:stop', `:duration',
   `:project-id', `:tag-names', `:tag-ids'"
-  (plist-get (cond ((plistp time-entry-or-id)
-                    time-entry-or-id)
-                   ((integerp time-entry-or-id)
-                    (toggl--time-entry time-entry-or-id)))
+  (plist-get (toggl--time-entry time-entry-or-id)
              field))
 
 ;; (defun toggl--time-entry-display (time-entry-or-id)
@@ -735,7 +728,7 @@ TIME-ENTRIES should be a list of either:
   - integers (i.e. keys in `toggl-time-entries' alist)
   - time entry plists (i.e. values in `toggl-time-entries' alist)
 
-Return list of formatted strings."
+Return alist of: (\"formatted string\" . time-entry-id)"
   (setq time-entries (seq-remove #'null (seq-map #'toggl--time-entry time-entries)))
 
   ;; Toggl website displays time entries sort of tabulated, like:
@@ -756,10 +749,16 @@ Return list of formatted strings."
         (width-duration    0)
         time-entries-display)
 
-    (dolist (time-entry time-entries)
+
+    (dolist (time-entry
+             ;; Sort time entries by start time, newest first.
+             (sort time-entries (lambda (a b)
+                                  (string> (toggl--time-entry-field a :start)
+                                           (toggl--time-entry-field b :start)))))
       ;; Build plist of display strings.
       (let ((display-fields
-             (list :description (toggl--time-entry-field time-entry :description)
+             (list :id          (toggl--time-entry-field time-entry :id)
+                   :description (toggl--time-entry-field time-entry :description)
                    :project     (toggl--project-field (toggl--time-entry-field time-entry :project-id)
                                                       :name)
                    :tags        (string-join (toggl--time-entry-field time-entry :tag-names) ", ")
@@ -791,15 +790,47 @@ Return list of formatted strings."
           formatted-display-strings)
       (dolist (display-entry time-entries-display)
         (push
-         (format time-entry-format
-                 (plist-get display-entry :description)
-                 (plist-get display-entry :project)
-                 (plist-get display-entry :tags)
-                 (plist-get display-entry :start)
-                 (plist-get display-entry :stop)
-                 (plist-get display-entry :duration))
+         (cons
+          (format time-entry-format
+                  (plist-get display-entry :description)
+                  (plist-get display-entry :project)
+                  (plist-get display-entry :tags)
+                  (plist-get display-entry :start)
+                  (plist-get display-entry :stop)
+                  (plist-get display-entry :duration))
+          (plist-get display-entry :id))
          formatted-display-strings))
       formatted-display-strings)))
+;; (toggl--time-entries-display toggl-time-entries)
+;; (dolist (e (toggl--time-entries-display toggl-time-entries))
+;;   (message (car e)))
+
+(defun toggl-prompt-time-entry (prompt &optional default-input)
+  "Prompt user for a time entry from `toggl-time-entries', return the ID.
+
+PROMPT string will be used in minibuffer prompt.
+
+DEFAULT-INPUT, if non-nil, will be provided as the already-filled-in input to
+the prompt."
+  (when (null toggl-time-entries)
+    (toggl-get-time-entries :sync))
+
+  (let ((time-entries (toggl--time-entries-display toggl-time-entries)))
+    ;; Convert choice to time-entry ID.
+    (alist-get
+     ;; Prompt user for project name, w/ completion help.
+     (completing-read prompt
+                      time-entries
+                      nil
+                      t
+                      (if (integerp default-input)
+                          (car (rassoc default-input time-entries))
+                        default-input))
+     time-entries
+     nil
+     nil
+     #'toggl-string=)))
+;; (toggl-prompt-time-entry "te: ")
 
 (defun toggl-get-time-entries (&optional sync)
   "Fill in `toggl-time-entries'.
@@ -815,9 +846,10 @@ Asynchronous if SYNC is nil."
             (mapcar (lambda (time-entry)
                       ;; Need more than just "Name & ID" for time entries.
                       (cons
-                      ;; alist by ID; rest of stuff in plist?
+                       ;; alist by ID; rest of stuff in plist?
                        (alist-get 'id time-entry)
                        (list
+                        :id          (alist-get 'id         time-entry)
                         :description (substring-no-properties (alist-get 'description time-entry))
                         :start       (alist-get 'start      time-entry)
                         :stop        (alist-get 'stop       time-entry)
